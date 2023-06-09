@@ -7,11 +7,7 @@ on:
 
 env:
   balena-cli: v15.1.1
-  raspberrypi3-64: 2.113.18
-  raspberrypi4-64: 2.113.18
-  raspberrypicm4-ioboard: 2.112.12
-  rockpi-4b-rk3399: 2.108.25+rev1
-  cloud: nebra-cloud
+  balena-bobcat-image: 2023.06.09
 
 jobs:
   build-open-fleet:
@@ -19,41 +15,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-        with: 
-          ref: master
-
-      - name: Determine if Raspberry Pi 3
-        run: |
-          repo="${{ github.event.repository.name }}"
-
-          if grep -q "-rockpi" <<<"$repo"; then
-            echo "Not RasPi 3"
-            RASPI3="NO"
-            ROCKPI="YES"
-          elif grep -q "outdoor" <<<"$repo"; then
-            echo "RasPi Outdoor"
-            RASPI3="YES"
-            ROCKPI="NO"
-          elif grep -q "indoor" <<<"$repo"; then
-            echo "RasPi Indoor"
-            RASPI3="YES"
-            ROCKPI="NO"
-          elif grep -q "risinghf" <<<"$repo"; then
-            echo "RisingHF"
-            RASPI3="YES"
-            ROCKPI="NO"
-          else
-            echo "Not RasPi 3"
-            RASPI3="NO"
-            ROCKPI="NO"
-          fi
-
-          echo "RASPI3=$RASPI3" >> $GITHUB_ENV
-          echo "ROCKPI=$ROCKPI" >> $GITHUB_ENV
-
-      - name: Random sleep (balena API workaround)
-        run:  sleep $[ ( $RANDOM % 540 ) + 1 ]s
-
       - name: Install latest balena-cli
         run: |
           sudo apt-get update
@@ -65,10 +26,19 @@ jobs:
           sudo ln -s /opt/balena-cli/balena /usr/bin/
           cd ~
 
+      - name: Download base Balena OS image
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          repo: 'NebraLtd/balena-bobcat-px30'
+          version: 'tags/${{ env.balena-bobcat-image }}'
+          file: 'balena-image-bobcat-px30-${{ env.balena-bobcat-image }}.img.zip'
+          target: 'images/balena-base-${{ github.event.repository.name }}.img.zip'
+          token: ${{ secrets.MR_BUMP }}
+
       - name: Generate a Balena OS image for the given board, variant, frequency
         run: |
           LATEST_GA=${{ github.event.client_payload.tag }}
-          if [ $LATEST_GA != "" ] ; then
+          if [ "${LATEST_GA}" != "" ] ; then
             echo "New release pushed to main repo: $LATEST_GA"
             echo "LATEST_GA=$LATEST_GA" >> $GITHUB_ENV
           else
@@ -76,16 +46,11 @@ jobs:
             echo "LATEST_GA=TEST" >> $GITHUB_ENV
           fi
 
-          IMAGE_BASE_PATH="$HOME/images"
+          IMAGE_BASE_PATH="$(pwd)/images"
           DATE=$(date +%F)
           USER=""
           NODRYRUN=true
-          VERBOSE=true     
-
-          # Make the base path for the generated images.
-          mkdir -p "$IMAGE_BASE_PATH"
-
-          # Print the parameters for generating images.
+          VERBOSE=true
 
           if [[ $USER != "" ]]; then
             echo " - user: ${USER}"
@@ -99,56 +64,18 @@ jobs:
             echo "(Verbose mode enabled)"
           fi
           
-          # Download balena OS
-          
-          if [ ${{ env.RASPI3 }} == 'YES' ] ; then
-            balena_os="raspberrypi3-64"
-            balena_os_version="${{ env.raspberrypi3-64 }}"
-          elif [ ${{ github.event.repository.name }} == 'helium-syncrobit' ] || [ ${{ github.event.repository.name }} == 'helium-linxdot' ] || [ ${{ github.event.repository.name }} == 'helium-pycom' ] || [ ${{ github.event.repository.name }} == 'helium-midas' ] ; then
-            balena_os="raspberrypicm4-ioboard"
-            balena_os_version="${{ env.raspberrypicm4-ioboard }}"
-          elif [ ${{ env.ROCKPI }} == 'YES' ] ; then
-            balena_os="rockpi-4b-rk3399"
-            balena_os_version="${{ env.rockpi-4b-rk3399 }}"
-          else
-            balena_os="raspberrypi4-64"
-            balena_os_version="${{ env.raspberrypi4-64 }}"
-          fi
-
+          unzip $IMAGE_BASE_PATH/*.zip -d $IMAGE_BASE_PATH/
           base_image_path="$IMAGE_BASE_PATH/balena-base-${{ github.event.repository.name }}.img"
-
-          if $VERBOSE ; then
-            echo -e "Downloading image ${balena_os} for version ${balena_os_version} and writing to ${base_image_path}"
-          fi
-
-          if $NODRYRUN ; then
-            # Download the base image
-            balena os download "$balena_os" \
-              -o "$base_image_path" \
-              --version "$balena_os_version"
-          fi
+          mv ${IMAGE_BASE_PATH}/*.img ${base_image_path}
 
           echo "IMAGE_BASE_PATH=$IMAGE_BASE_PATH" >> $GITHUB_ENV
           echo "DATE=$DATE" >> $GITHUB_ENV
           echo "base_image_path=$base_image_path" >> $GITHUB_ENV
-          echo "balena_os_version=$balena_os_version" >> $GITHUB_ENV
     
       - name: Balena login
         run: |
-          if [ "${{ env.cloud }}" == "nebra-cloud" ]; then
-            echo "balenaUrl: cloud.nebra.com" > ~/.balenarc.yml
-            balena login --token ${{ secrets.NEBRAOS_CLOUD_TOKEN }} > /dev/null
-          else
-            if [ ${{ env.RASPI3 }} == 'YES' ] ; then
-              balena login --token ${{ secrets.BALENA_API_TOKEN }} > /dev/null
-            elif [ ${{ github.event.repository.name }} == 'helium-syncrobit' ] || [ ${{ github.event.repository.name }} == 'helium-linxdot' ] || [ ${{ github.event.repository.name }} == 'helium-pycom' ] || [ ${{ github.event.repository.name }} == 'helium-midas' ] ; then
-              balena login --token ${{ secrets.BALENA_API_TOKEN_2 }} > /dev/null
-            elif [ ${{ env.ROCKPI }} == 'YES' ] ; then
-              balena login --token ${{ secrets.BALENA_API_TOKEN_3 }} > /dev/null
-            else
-              balena login --token ${{ secrets.BALENA_API_TOKEN_4 }} > /dev/null
-            fi
-          fi
+          echo "balenaUrl: cloud.nebra.com" > ~/.balenarc.yml
+          balena login --token ${{ secrets.NEBRAOS_CLOUD_TOKEN }} > /dev/null
 
       - name: Configure Balena OS image for the given board, variant, frequency
         run: |
@@ -175,12 +102,9 @@ jobs:
           if $NODRYRUN ; then
             cp "${{ env.base_image_path }}" "$image_path"
           fi
-
+          
           if $NODRYRUN ; then
-            balena os configure "$image_path" \
-              --fleet "nebraltd/$fleet_name" \
-              --config-network ethernet \
-              --version "${{ env.balena_os_version }}"
+            sudo balena config inject ${GITHUB_WORKSPACE}/config.json --drive "${image_path}"
           fi
 
           if $VERBOSE ; then
@@ -211,31 +135,6 @@ jobs:
 
           if $VERBOSE ; then
             echo "Copying configuration files..."
-          fi
-
-          if $NODRYRUN ; then
-            if [ -f "./config.txt" ] ; then
-              echo "Config.txt file found..."
-              mountpoints=/tmp/balena-image-mountpoints
-              balena_image_boot_mnt=${mountpoints}/resin-boot
-
-              # Setup mountpoints
-              sudo rm -rf $mountpoints > /dev/null 2>&1 || true
-              sudo mkdir -p $balena_image_boot_mnt
-
-              balena_image_loop_dev="$(sudo losetup -fP --show "$image_path")"
-
-              sudo mount "${balena_image_loop_dev}p1" "$balena_image_boot_mnt"
-              sudo cp "./config.txt" "$balena_image_boot_mnt/config.txt"
-
-              sleep 5  # Waits 5 seconds.
-            
-              # Cleanup
-              sudo umount "$balena_image_boot_mnt"
-              sudo losetup -d "$balena_image_loop_dev"
-            else
-              echo "Config.txt file not found..."
-            fi
           fi
 
           # Compress Balena image file and generate SHA512 checksum file
