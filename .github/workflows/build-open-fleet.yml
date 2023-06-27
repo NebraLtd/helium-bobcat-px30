@@ -131,10 +131,19 @@ jobs:
             sudo balena config inject $final_json_filename --drive "$image_path"
           fi
 
-          # Copy configuration files into boot and root partition of the balena image
-
+          # Overwrite device type from "bobcat-px30" to "isg-503"
           if $VERBOSE ; then
-            echo "Copying configuration files..."
+            echo "Overwriting device-type"
+          fi
+
+          if $NODRYRUN ; then
+            sudo losetup -P -f "${image_path}"
+            loop_dev=$(losetup -l | grep $(basename "${image_path}") | cut -d ' ' -f 1)
+            tmpdir=$(mktemp -d)
+            sudo mount ${loop_dev}p1 ${tmpdir}
+            sudo sed -i 's/"slug": "bobcat-px30"/"slug": "isg-503"/' ${tmpdir}/device-type.json
+            sudo umount ${tmpdir}
+            sudo losetup -d ${loop_dev}
           fi
 
           # Compress Balena image file and generate SHA512 checksum file
@@ -151,7 +160,7 @@ jobs:
           fi
 
           if $VERBOSE ; then
-            echo "Generating checkum"
+            echo "Generating checksum"
           fi
 
           if $NODRYRUN ; then
