@@ -141,7 +141,7 @@ jobs:
             loop_dev=$(losetup -l | grep $(basename "${image_path}") | cut -d ' ' -f 1)
             tmpdir=$(mktemp -d)
             sudo mount ${loop_dev}p1 ${tmpdir}
-            sed -i 's/"slug": "bobcat-px30"/"slug": "isg-503"/' ${tmpdir}/device-type.json
+            sudo sed -i 's/"slug": "bobcat-px30"/"slug": "isg-503"/' ${tmpdir}/device-type.json
             sudo umount ${tmpdir}
             sudo losetup -d ${loop_dev}
           fi
